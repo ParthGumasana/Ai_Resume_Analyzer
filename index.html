@@ -1,0 +1,620 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Resume Analyzer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.0/socket.io.js"></script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f0f4f8;
+            color: #334155;
+        }
+        .container {
+            max-width: 90%; /* Fluid width */
+            padding: 1rem;
+            margin: 2rem auto;
+            background-color: #ffffff;
+            border-radius: 1rem;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+        }
+        @media (min-width: 768px) {
+            .container {
+                flex-direction: row;
+                justify-content: space-between;
+                max-width: 1200px;
+            }
+        }
+        .input-section, .output-section {
+            flex: 1;
+            padding: 1.5rem;
+            border-radius: 0.75rem;
+            background-color: #f8fafc;
+            border: 1px solid #e2e8f0;
+        }
+        .input-section {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }
+        .output-section {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }
+        textarea, input[type="file"], input[type="text"] {
+            padding: 0.75rem;
+            border: 1px solid #cbd5e1;
+            border-radius: 0.5rem;
+            width: 100%;
+            font-size: 1rem;
+        }
+        button {
+            padding: 0.75rem 1.25rem;
+            border-radius: 0.5rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease-in-out;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+        button:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+        }
+        .btn-primary {
+            background-color: #4f46e5;
+            color: #ffffff;
+            border: none;
+        }
+        .btn-primary:hover {
+            background-color: #4338ca;
+        }
+        .btn-secondary {
+            background-color: #64748b;
+            color: #ffffff;
+            border: none;
+        }
+        .btn-secondary:hover {
+            background-color: #475569;
+        }
+        .btn-outline {
+            background-color: transparent;
+            color: #4f46e5;
+            border: 2px solid #4f46e5;
+        }
+        .btn-outline:hover {
+            background-color: #e0e7ff;
+            color: #4f46e5;
+        }
+        .alert-box {
+            padding: 1rem;
+            border-radius: 0.5rem;
+            font-weight: 500;
+            margin-top: 1rem;
+        }
+        .alert-success {
+            background-color: #d1fae5;
+            color: #065f46;
+            border: 1px solid #10b981;
+        }
+        .alert-error {
+            background-color: #fee2e2;
+            color: #dc2626;
+            border: 1px solid #ef4444;
+        }
+        .loading-spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #3498db;
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto;
+            display: none; /* Hidden by default */
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .hidden {
+            display: none !important;
+        }
+        .flex-row {
+            display: flex;
+            gap: 1rem;
+        }
+        @media (max-width: 767px) {
+            .flex-row {
+                flex-direction: column;
+            }
+        }
+    </style>
+</head>
+<body class="p-4">
+    <div class="container">
+        <div class="input-section">
+            <h2 class="text-2xl font-bold text-center text-gray-800 mb-4">Resume & Job Description</h2>
+            
+            <label for="resumeFile" class="block text-sm font-medium text-gray-700 mb-1">Upload Resume (PDF, DOCX, XLSX - Max 10MB):</label>
+            <input type="file" id="resumeFile" accept=".pdf,.doc,.docx,.xls,.xlsx" class="block w-full text-sm text-gray-500
+                file:mr-4 file:py-2 file:px-4
+                file:rounded-md file:border-0
+                file:text-sm file:font-semibold
+                file:bg-violet-50 file:text-violet-700
+                hover:file:bg-violet-100 cursor-pointer">
+
+            <label for="jobDescription" class="block text-sm font-medium text-gray-700 mb-1">Job Description:</label>
+            <textarea id="jobDescription" rows="10" placeholder="Paste the job description here..."></textarea>
+
+            <button id="analyzeBtn" class="btn-primary">Analyze Resume</button>
+            <div id="loadingSpinner" class="loading-spinner"></div>
+            <div id="statusMessage" class="alert-box hidden"></div>
+        </div>
+
+        <div class="output-section">
+            <h2 class="text-2xl font-bold text-center text-gray-800 mb-4">Analysis & Tools</h2>
+            
+            <div id="analysisResult" class="hidden">
+                <p class="text-lg font-semibold mb-2">Compatibility Score: <span id="score" class="text-indigo-600"></span>/10</p>
+                
+                <h3 class="text-xl font-semibold mt-4 mb-2">Suggestions for Improvement:</h3>
+                <ul id="suggestionsList" class="list-disc list-inside text-gray-700">
+                    <!-- Suggestions will be populated here -->
+                </ul>
+
+                <h3 class="text-xl font-semibold mt-4 mb-2">Suggested Professional Summary:</h3>
+                <p id="revisedSummary" class="text-gray-700 italic"></p>
+            </div>
+
+            <div class="flex-row">
+                <button id="editResumeBtn" class="btn-outline flex-1">Edit Extracted Resume Text</button>
+                <button id="prepInterviewBtn" class="btn-outline flex-1">Prepare for Interview</button>
+                <button id="careerRoadmapBtn" class="btn-outline flex-1">Generate Career Roadmap</button>
+            </div>
+
+            <!-- Modals for Editing and Interview Prep -->
+            <div id="editModal" class="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full hidden">
+                <div class="relative top-20 mx-auto p-5 border w-11/12 md:w-3/4 lg:w-1/2 shadow-lg rounded-md bg-white">
+                    <h3 class="text-xl font-bold mb-4">Edit Extracted Resume Text</h3>
+                    <textarea id="editedResumeText" rows="20" class="w-full p-2 border rounded-md"></textarea>
+                    <div class="flex justify-end mt-4 space-x-2">
+                        <button id="saveEditsBtn" class="btn-primary">Save Changes & Generate New PDF</button>
+                        <button id="closeEditModalBtn" class="btn-secondary">Close</button>
+                    </div>
+                </div>
+            </div>
+
+            <div id="interviewPrepModal" class="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full hidden">
+                <div class="relative top-20 mx-auto p-5 border w-11/12 md:w-3/4 lg:w-1/2 shadow-lg rounded-md bg-white">
+                    <h3 class="text-xl font-bold mb-4">Interview Preparation Materials</h3>
+                    <div id="interviewPrepContent">
+                        <h4 class="font-semibold text-lg mb-2">Common Questions:</h4>
+                        <ul id="interviewQuestionsList" class="list-disc list-inside mb-4"></ul>
+                        <h4 class="font-semibold text-lg mb-2">General Tips:</h4>
+                        <ul id="interviewTipsList" class="list-disc list-inside"></ul>
+                    </div>
+                    <div class="flex justify-end mt-4 space-x-2">
+                        <button id="startSimulationBtn" class="btn-primary">Start Interview Simulation</button>
+                        <button id="closePrepModalBtn" class="btn-secondary">Close</button>
+                    </div>
+                </div>
+            </div>
+
+            <div id="simulationModal" class="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full hidden">
+                <div class="relative top-20 mx-auto p-5 border w-11/12 md:w-3/4 lg:w-1/2 shadow-lg rounded-md bg-white">
+                    <h3 class="text-xl font-bold mb-4">Interview Simulation</h3>
+                    <p class="font-semibold text-lg mb-2">Question:</p>
+                    <p id="simulationQuestion" class="mb-4 text-gray-700"></p>
+                    <p class="font-semibold text-lg mb-2">Scenario:</p>
+                    <p id="simulationScenario" class="mb-4 text-gray-700 italic"></p>
+                    <textarea id="userAnswer" rows="8" placeholder="Type your answer here..." class="w-full p-2 border rounded-md mb-4"></textarea>
+                    <div class="flex justify-end mt-4 space-x-2">
+                        <button id="getFeedbackBtn" class="btn-primary">Get Feedback</button>
+                        <button id="closeSimulationModalBtn" class="btn-secondary">Close</button>
+                    </div>
+                    <div id="feedbackResult" class="mt-4 hidden">
+                        <h4 class="font-semibold text-lg mb-2">Feedback:</h4>
+                        <p><strong>STAR Method:</strong> <span id="starFeedback"></span></p>
+                        <p><strong>Relevance & Impact:</strong> <span id="relevanceImpactFeedback"></span></p>
+                        <p><strong>Clarity & Conciseness:</strong> <span id="clarityFeedback"></span></p>
+                        <p><strong>Overall:</strong> <span id="overallSuggestion"></span></p>
+                    </div>
+                </div>
+            </div>
+
+            <div id="careerRoadmapModal" class="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full hidden">
+                <div class="relative top-20 mx-auto p-5 border w-11/12 md:w-3/4 lg:w-1/2 shadow-lg rounded-md bg-white">
+                    <h3 class="text-xl font-bold mb-4">Career Roadmap</h3>
+                    <label for="desiredRoles" class="block text-sm font-medium text-gray-700 mb-1">Desired Future Roles (comma-separated):</label>
+                    <input type="text" id="desiredRoles" placeholder="e.g., Senior Developer, Tech Lead" class="w-full p-2 border rounded-md mb-4">
+                    <button id="generateRoadmapBtn" class="btn-primary mb-4">Generate Roadmap</button>
+
+                    <div id="roadmapContent" class="hidden">
+                        <h4 class="font-semibold text-lg mb-2">Skill Gaps:</h4>
+                        <ul id="skillGapsList" class="list-disc list-inside mb-4"></ul>
+                        <h4 class="font-semibold text-lg mb-2">Learning Recommendations:</h4>
+                        <ul id="learningRecommendationsList" class="list-disc list-inside mb-4"></ul>
+                        <h4 class="font-semibold text-lg mb-2">Project Ideas:</h4>
+                        <ul id="projectIdeasList" class="list-disc list-inside mb-4"></ul>
+                        <h4 class="font-semibold text-lg mb-2">Networking & Soft Skill Tips:</h4>
+                        <ul id="networkingTipsList" class="list-disc list-inside mb-4"></ul>
+                        <h4 class="font-semibold text-lg mb-2">Aspirational Summary:</h4>
+                        <p id="aspirationalSummary" class="italic"></p>
+                    </div>
+                    <button id="closeRoadmapModalBtn" class="btn-secondary mt-4">Close</button>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <script>
+        const socket = io('http://localhost:5000'); // Connect to your FastAPI backend
+        const analyzeBtn = document.getElementById('analyzeBtn');
+        const resumeFile = document.getElementById('resumeFile');
+        const jobDescription = document.getElementById('jobDescription');
+        const analysisResult = document.getElementById('analysisResult');
+        const scoreSpan = document.getElementById('score');
+        const suggestionsList = document.getElementById('suggestionsList');
+        const revisedSummary = document.getElementById('revisedSummary');
+        const statusMessage = document.getElementById('statusMessage');
+        const loadingSpinner = document.getElementById('loadingSpinner');
+
+        const editResumeBtn = document.getElementById('editResumeBtn');
+        const prepInterviewBtn = document.getElementById('prepInterviewBtn');
+        const careerRoadmapBtn = document.getElementById('careerRoadmapBtn');
+
+        // Modals and their elements
+        const editModal = document.getElementById('editModal');
+        const closeEditModalBtn = document.getElementById('closeEditModalBtn');
+        const saveEditsBtn = document.getElementById('saveEditsBtn');
+        const editedResumeText = document.getElementById('editedResumeText');
+        let currentExtractedResumeText = ''; // Store the extracted text
+
+        const interviewPrepModal = document.getElementById('interviewPrepModal');
+        const closePrepModalBtn = document.getElementById('closePrepModalBtn');
+        const startSimulationBtn = document.getElementById('startSimulationBtn');
+        const interviewQuestionsList = document.getElementById('interviewQuestionsList');
+        const interviewTipsList = document.getElementById('interviewTipsList');
+
+        const simulationModal = document.getElementById('simulationModal');
+        const closeSimulationModalBtn = document.getElementById('closeSimulationModalBtn');
+        const getFeedbackBtn = document.getElementById('getFeedbackBtn');
+        const simulationQuestion = document.getElementById('simulationQuestion');
+        const simulationScenario = document.getElementById('simulationScenario');
+        const userAnswer = document.getElementById('userAnswer');
+        const feedbackResult = document.getElementById('feedbackResult');
+        const starFeedback = document.getElementById('starFeedback');
+        const relevanceImpactFeedback = document.getElementById('relevanceImpactFeedback');
+        const clarityFeedback = document.getElementById('clarityFeedback');
+        const overallSuggestion = document.getElementById('overallSuggestion');
+
+        const careerRoadmapModal = document.getElementById('careerRoadmapModal');
+        const closeRoadmapModalBtn = document.getElementById('closeRoadmapModalBtn');
+        const desiredRolesInput = document.getElementById('desiredRoles');
+        const generateRoadmapBtn = document.getElementById('generateRoadmapBtn');
+        const roadmapContent = document.getElementById('roadmapContent');
+        const skillGapsList = document.getElementById('skillGapsList');
+        const learningRecommendationsList = document.getElementById('learningRecommendationsList');
+        const projectIdeasList = document.getElementById('projectIdeasList');
+        const networkingTipsList = document.getElementById('networkingTipsList');
+        const aspirationalSummary = document.getElementById('aspirationalSummary');
+
+        const MAX_FILE_SIZE_MB = 10; // 10 MB limit for client-side check
+
+        // --- Utility Functions ---
+        function showAlert(message, type = 'error') {
+            statusMessage.textContent = message;
+            statusMessage.className = `alert-box ${type === 'success' ? 'alert-success' : 'alert-error'}`;
+            statusMessage.classList.remove('hidden');
+        }
+
+        function clearAlert() {
+            statusMessage.classList.add('hidden');
+            statusMessage.textContent = '';
+        }
+
+        function showLoading(show) {
+            if (show) {
+                loadingSpinner.style.display = 'block';
+                analyzeBtn.disabled = true;
+                analyzeBtn.textContent = 'Analyzing...';
+                clearAlert();
+            } else {
+                loadingSpinner.style.display = 'none';
+                analyzeBtn.disabled = false;
+                analyzeBtn.textContent = 'Analyze Resume';
+            }
+        }
+
+        // --- Event Listeners ---
+
+        analyzeBtn.addEventListener('click', () => {
+            clearAlert();
+            const file = resumeFile.files[0];
+            const jd = jobDescription.value;
+
+            if (!file) {
+                showAlert('Please upload a resume file.');
+                return;
+            }
+            if (!jd) {
+                showAlert('Please enter a job description.');
+                return;
+            }
+
+            // Client-side file size validation
+            if (file.size > MAX_FILE_SIZE_MB * 1024 * 1024) {
+                showAlert(`File size exceeds the limit of ${MAX_FILE_SIZE_MB} MB.`);
+                resumeFile.value = ''; // Clear the file input
+                return;
+            }
+
+            // Client-side file type validation
+            const allowedTypes = [
+                'application/pdf',
+                'application/vnd.openxmlformats-officedocument.wordprocessingml.document', // .docx
+                'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'       // .xlsx
+            ];
+            if (!allowedTypes.includes(file.type)) {
+                showAlert('Unsupported file type. Please upload PDF, DOCX, or XLSX.');
+                resumeFile.value = ''; // Clear the file input
+                return;
+            }
+
+            const reader = new FileReader();
+            reader.onload = function(event) {
+                const base64File = event.target.result.split(',')[1]; // Get base64 string
+                showLoading(true);
+                socket.emit('upload_resume_and_jd', {
+                    resume_file: base64File,
+                    job_description: jd,
+                    file_type: file.type // Send file type to backend
+                });
+            };
+            reader.readAsDataURL(file);
+        });
+
+        // --- Socket.IO Event Handlers ---
+        socket.on('connect', () => {
+            console.log('Connected to backend Socket.IO');
+            showAlert('Connected to backend!', 'success');
+        });
+
+        socket.on('disconnect', () => {
+            console.log('Disconnected from backend Socket.IO');
+            showAlert('Disconnected from backend.', 'error');
+        });
+
+        socket.on('status', (data) => {
+            console.log('Status:', data.message);
+            //showAlert(data.message, 'success');
+        });
+
+        socket.on('error', (data) => {
+            console.error('Backend Error:', data.message);
+            showAlert(`Error: ${data.message}`);
+            showLoading(false); // Hide loading on error
+        });
+
+        socket.on('analysis_result', (data) => {
+            showLoading(false);
+            analysisResult.classList.remove('hidden');
+            scoreSpan.textContent = data.score;
+            revisedSummary.textContent = data.revised_summary;
+            currentExtractedResumeText = data.extracted_resume_text; // Save extracted text
+
+            suggestionsList.innerHTML = '';
+            data.suggestions.forEach(s => {
+                const li = document.createElement('li');
+                li.textContent = s;
+                suggestionsList.appendChild(li);
+            });
+            showAlert('Analysis complete!', 'success');
+        });
+
+        socket.on('updated_resume_pdf', (data) => {
+            showAlert('New PDF generated! Opening in new tab...', 'success');
+            const pdfBlob = b64toBlob(data.pdf_b64, 'application/pdf');
+            const pdfUrl = URL.createObjectURL(pdfBlob);
+            window.open(pdfUrl, '_blank');
+            showLoading(false);
+        });
+
+        socket.on('interview_prep_materials', (data) => {
+            interviewQuestionsList.innerHTML = '';
+            data.interview_questions.forEach(q => {
+                const li = document.createElement('li');
+                li.innerHTML = `<strong>${q.question}</strong>: ${q.ideal_answer_outline}`;
+                interviewQuestionsList.appendChild(li);
+            });
+
+            interviewTipsList.innerHTML = '';
+            data.interview_tips.forEach(tip => {
+                const li = document.createElement('li');
+                li.textContent = tip;
+                interviewTipsList.appendChild(li);
+            });
+            showLoading(false);
+            interviewPrepModal.classList.remove('hidden');
+        });
+
+        socket.on('interview_question', (data) => {
+            showLoading(false);
+            simulationQuestion.textContent = data.question;
+            simulationScenario.textContent = data.scenario;
+            userAnswer.value = ''; // Clear previous answer
+            feedbackResult.classList.add('hidden'); // Hide previous feedback
+            simulationModal.classList.remove('hidden');
+        });
+
+        socket.on('interview_feedback', (data) => {
+            showLoading(false);
+            starFeedback.textContent = data.star_feedback;
+            relevanceImpactFeedback.textContent = data.relevance_impact_feedback;
+            clarityFeedback.textContent = data.clarity_feedback;
+            overallSuggestion.textContent = data.overall_suggestion;
+            feedbackResult.classList.remove('hidden');
+        });
+
+        socket.on('career_roadmap', (data) => {
+            showLoading(false);
+            roadmapContent.classList.remove('hidden');
+            
+            skillGapsList.innerHTML = '';
+            data.skill_gaps.forEach(category => {
+                const categoryLi = document.createElement('li');
+                categoryLi.innerHTML = `<strong>${category.category}:</strong> ${category.skills.join(', ')}`;
+                skillGapsList.appendChild(categoryLi);
+            });
+
+            learningRecommendationsList.innerHTML = '';
+            data.learning_recommendations.forEach(rec => {
+                const li = document.createElement('li');
+                li.innerHTML = `<strong>${rec.skill_area}:</strong> ${rec.resources.join('; ')}`;
+                learningRecommendationsList.appendChild(li);
+            });
+
+            projectIdeasList.innerHTML = '';
+            data.project_ideas.forEach(idea => {
+                const li = document.createElement('li');
+                li.textContent = idea;
+                projectIdeasList.appendChild(li);
+            });
+
+            networkingTipsList.innerHTML = '';
+            data.networking_tips.forEach(tip => {
+                const li = document.createElement('li');
+                li.textContent = tip;
+                networkingTipsList.appendChild(li);
+            });
+
+            aspirationalSummary.textContent = data.aspirational_summary;
+            careerRoadmapModal.classList.remove('hidden');
+        });
+
+        // --- Modal Control ---
+        editResumeBtn.addEventListener('click', () => {
+            editedResumeText.value = currentExtractedResumeText;
+            editModal.classList.remove('hidden');
+        });
+
+        closeEditModalBtn.addEventListener('click', () => {
+            editModal.classList.add('hidden');
+        });
+
+        saveEditsBtn.addEventListener('click', () => {
+            showLoading(true);
+            socket.emit('apply_edits', { edited_resume_text: editedResumeText.value });
+            editModal.classList.add('hidden');
+        });
+
+        prepInterviewBtn.addEventListener('click', () => {
+            const jd = jobDescription.value;
+            if (!jd) {
+                showAlert('Please enter a job description to prepare for an interview.');
+                return;
+            }
+            showLoading(true);
+            socket.emit('request_interview_prep', { job_description: jd });
+        });
+
+        closePrepModalBtn.addEventListener('click', () => {
+            interviewPrepModal.classList.add('hidden');
+        });
+
+        startSimulationBtn.addEventListener('click', () => {
+            const jd = jobDescription.value;
+            if (!currentExtractedResumeText || !jd) {
+                showAlert('Please analyze a resume and provide a job description first to start simulation.');
+                return;
+            }
+            showLoading(true);
+            socket.emit('start_interview_simulation', {
+                resume_text: currentExtractedResumeText,
+                job_description: jd
+            });
+            interviewPrepModal.classList.add('hidden'); // Close prep modal
+        });
+
+        closeSimulationModalBtn.addEventListener('click', () => {
+            simulationModal.classList.add('hidden');
+        });
+
+        getFeedbackBtn.addEventListener('click', () => {
+            const question = simulationQuestion.textContent;
+            const userAnswerText = userAnswer.value;
+            const jd = jobDescription.value;
+
+            if (!question || !userAnswerText || !jd || !currentExtractedResumeText) {
+                showAlert('Please ensure the question, your answer, job description, and resume text are available.');
+                return;
+            }
+            showLoading(true);
+            socket.emit('get_interview_feedback', {
+                question: question,
+                user_answer: userAnswerText,
+                job_description: jd,
+                resume_text: currentExtractedResumeText
+            });
+        });
+
+        careerRoadmapBtn.addEventListener('click', () => {
+            const jd = jobDescription.value;
+            if (!currentExtractedResumeText || !jd) {
+                showAlert('Please analyze a resume and provide a job description first to generate a career roadmap.');
+                return;
+            }
+            // Just open the modal; actual generation happens when 'Generate Roadmap' is clicked
+            roadmapContent.classList.add('hidden'); // Hide previous content
+            desiredRolesInput.value = ''; // Clear previous input
+            careerRoadmapModal.classList.remove('hidden');
+        });
+
+        closeRoadmapModalBtn.addEventListener('click', () => {
+            careerRoadmapModal.classList.add('hidden');
+        });
+
+        generateRoadmapBtn.addEventListener('click', () => {
+            const jd = jobDescription.value;
+            const desiredRoles = desiredRolesInput.value.split(',').map(role => role.trim()).filter(role => role.length > 0);
+
+            if (!currentExtractedResumeText || !jd || desiredRoles.length === 0) {
+                showAlert('Please analyze a resume, provide a job description, and enter desired roles.');
+                return;
+            }
+            showLoading(true);
+            socket.emit('request_career_roadmap', {
+                resume_text: currentExtractedResumeText,
+                job_description: jd,
+                desired_roles: desiredRoles
+            });
+        });
+
+        // Helper function to convert base64 to Blob
+        function b64toBlob(b64Data, contentType='', sliceSize=512) {
+            const byteCharacters = atob(b64Data);
+            const byteArrays = [];
+
+            for (let offset = 0; offset < byteCharacters.length; offset += sliceSize) {
+                const slice = byteCharacters.slice(offset, offset + sliceSize);
+                const byteNumbers = new Array(slice.length);
+                for (let i = 0; i < slice.length; i++) {
+                    byteNumbers[i] = slice.charCodeAt(i);
+                }
+                const byteArray = new Uint8Array(byteNumbers);
+                byteArrays.push(byteArray);
+            }
+
+            const blob = new Blob(byteArrays, {type: contentType});
+            return blob;
+        }
+
+    </script>
+</body>
+</html>
