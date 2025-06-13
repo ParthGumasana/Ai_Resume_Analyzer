@@ -269,7 +269,7 @@
     </div>
 
     <script>
-        const socket = io('http://localhost:5000'); // Connect to your Flask-SocketIO backend
+        const socket = io(); // CHANGED: Connect to the same host/port
 
         const analyzeBtn = document.getElementById('analyzeBtn');
         const resumeFile = document.getElementById('resumeFile');
