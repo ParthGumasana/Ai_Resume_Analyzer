@@ -47,7 +47,7 @@
             flex-direction: column;
             gap: 1rem;
         }
-        textarea, input[type="file"], input[type="text"] {
+        textarea, input[type="file"], input[type="text"], select { /* Added select for templates */
             padding: 0.75rem;
             border: 1px solid #cbd5e1;
             border-radius: 0.5rem;
@@ -172,7 +172,8 @@
             </div>
 
             <div class="flex-row">
-                <button id="editResumeBtn" class="btn-outline flex-1">Edit Extracted Resume Text</button>
+                <!-- Updated button text to reflect new AI-suggested changes feature -->
+                <button id="editResumeBtn" class="btn-outline flex-1">Review/Edit AI-Generated Resume</button>
                 <button id="prepInterviewBtn" class="btn-outline flex-1">Prepare for Interview</button>
                 <button id="careerRoadmapBtn" class="btn-outline flex-1">Generate Career Roadmap</button>
             </div>
@@ -180,11 +181,25 @@
             <!-- Modals for Editing and Interview Prep -->
             <div id="editModal" class="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full hidden">
                 <div class="relative top-20 mx-auto p-5 border w-11/12 md:w-3/4 lg:w-1/2 shadow-lg rounded-md bg-white">
-                    <h3 class="text-xl font-bold mb-4">Edit Extracted Resume Text</h3>
+                    <!-- Updated modal title -->
+                    <h3 class="text-xl font-bold mb-4">Review & Edit AI-Generated Resume Text</h3>
                     <textarea id="editedResumeText" rows="20" class="w-full p-2 border rounded-md"></textarea>
+                    
+                    <label for="templateSelect" class="block text-sm font-medium text-gray-700 mt-4 mb-1">Select Resume Template:</label>
+                    <select id="templateSelect" class="w-full p-2 border rounded-md mb-4">
+                        <option value="Basic Template">Basic Template (Default)</option>
+                        <option value="Professional Template">Professional Template</option>
+                        <option value="Modern Template">Modern Template</option>
+                    </select>
+
                     <div class="flex justify-end mt-4 space-x-2">
-                        <button id="saveEditsBtn" class="btn-primary">Save Changes & Generate New PDF</button>
+                        <!-- Updated button text -->
+                        <button id="saveEditsBtn" class="btn-primary">Apply Edits & Generate PDF</button>
                         <button id="closeEditModalBtn" class="btn-secondary">Close</button>
+                    </div>
+                    <!-- New container for download link -->
+                    <div id="pdfDownloadContainer" class="mt-4 text-center hidden">
+                        <a href="#" id="downloadGeneratedPdfLink" class="btn-outline">Download AI-Revised PDF</a>
                     </div>
                 </div>
             </div>
@@ -254,7 +269,8 @@
     </div>
 
     <script>
-        const socket = io('http://localhost:5000'); // Connect to your FastAPI backend
+        const socket = io('http://localhost:5000'); // Connect to your Flask-SocketIO backend
+
         const analyzeBtn = document.getElementById('analyzeBtn');
         const resumeFile = document.getElementById('resumeFile');
         const jobDescription = document.getElementById('jobDescription');
@@ -274,7 +290,14 @@
         const closeEditModalBtn = document.getElementById('closeEditModalBtn');
         const saveEditsBtn = document.getElementById('saveEditsBtn');
         const editedResumeText = document.getElementById('editedResumeText');
-        let currentExtractedResumeText = ''; // Store the extracted text
+        const templateSelect = document.getElementById('templateSelect'); // New: Template select dropdown
+        const pdfDownloadContainer = document.getElementById('pdfDownloadContainer'); // New: PDF download container
+        const downloadGeneratedPdfLink = document.getElementById('downloadGeneratedPdfLink'); // New: Download link
+
+        // New variables to store different resume text versions and AI summary
+        let currentExtractedResumeText = ''; // Stores the original extracted text (for reference if needed)
+        let currentAiRevisedFullResumeText = ''; // Stores the AI-generated revised full resume text
+        let currentRevisedSummary = ''; // Stores the AI-generated revised summary
 
         const interviewPrepModal = document.getElementById('interviewPrepModal');
         const closePrepModalBtn = document.getElementById('closePrepModalBtn');
@@ -393,7 +416,7 @@
 
         socket.on('status', (data) => {
             console.log('Status:', data.message);
-            //showAlert(data.message, 'success');
+            //showAlert(data.message, 'success'); // Optional: show all status messages
         });
 
         socket.on('error', (data) => {
@@ -403,11 +426,16 @@
         });
 
         socket.on('analysis_result', (data) => {
+            console.log('Analysis Result:', data);
             showLoading(false);
             analysisResult.classList.remove('hidden');
             scoreSpan.textContent = data.score;
             revisedSummary.textContent = data.revised_summary;
-            currentExtractedResumeText = data.extracted_resume_text; // Save extracted text
+            
+            // Store the various resume text versions and AI summary
+            currentExtractedResumeText = data.extracted_resume_text; // Original text (for reference)
+            currentAiRevisedFullResumeText = data.ai_revised_full_resume_text; // NEW: AI-generated text
+            currentRevisedSummary = data.revised_summary; // AI-generated summary
 
             suggestionsList.innerHTML = '';
             data.suggestions.forEach(s => {
@@ -415,14 +443,20 @@
                 li.textContent = s;
                 suggestionsList.appendChild(li);
             });
-            showAlert('Analysis complete!', 'success');
+            showAlert('Analysis complete! Review AI-generated changes.', 'success');
+            
+            // Hide previous download link if any
+            pdfDownloadContainer.classList.add('hidden'); 
         });
 
         socket.on('updated_resume_pdf', (data) => {
-            showAlert('New PDF generated! Opening in new tab...', 'success');
+            showAlert('New PDF generated! You can download it below.', 'success');
             const pdfBlob = b64toBlob(data.pdf_b64, 'application/pdf');
             const pdfUrl = URL.createObjectURL(pdfBlob);
-            window.open(pdfUrl, '_blank');
+            
+            downloadGeneratedPdfLink.href = pdfUrl;
+            pdfDownloadContainer.classList.remove('hidden'); // Show the download link container
+            
             showLoading(false);
         });
 
@@ -450,6 +484,10 @@
             simulationScenario.textContent = data.scenario;
             userAnswer.value = ''; // Clear previous answer
             feedbackResult.classList.add('hidden'); // Hide previous feedback
+            starFeedback.textContent = ''; // Clear feedback content
+            relevanceImpactFeedback.textContent = '';
+            clarityFeedback.textContent = '';
+            overallSuggestion.textContent = '';
             simulationModal.classList.remove('hidden');
         });
 
@@ -500,7 +538,11 @@
 
         // --- Modal Control ---
         editResumeBtn.addEventListener('click', () => {
-            editedResumeText.value = currentExtractedResumeText;
+            // Populate the textarea with the AI-generated revised text for review/editing
+            editedResumeText.value = currentAiRevisedFullResumeText;
+            // Also, pre-select the "Basic Template" or previously selected one if needed
+            templateSelect.value = "Basic Template"; // Default selection
+            pdfDownloadContainer.classList.add('hidden'); // Hide previous PDF download link
             editModal.classList.remove('hidden');
         });
 
@@ -510,8 +552,14 @@
 
         saveEditsBtn.addEventListener('click', () => {
             showLoading(true);
-            socket.emit('apply_edits', { edited_resume_text: editedResumeText.value });
-            editModal.classList.add('hidden');
+            const selectedTemplate = templateSelect.value;
+            socket.emit('apply_edits', {
+                edited_resume_text: editedResumeText.value, // This is now the AI-generated and potentially user-tweaked text
+                revised_summary: currentRevisedSummary, // Pass the AI-generated revised summary
+                selected_template: selectedTemplate // Pass the selected template
+            });
+            // Keep modal open to show download link, or close if preferred.
+            // editModal.classList.add('hidden'); // Close modal if you want to.
         });
 
         prepInterviewBtn.addEventListener('click', () => {
@@ -530,13 +578,15 @@
 
         startSimulationBtn.addEventListener('click', () => {
             const jd = jobDescription.value;
-            if (!currentExtractedResumeText || !jd) {
+            // Use AI-generated text for simulation context if available, otherwise original extracted text
+            const resumeForSimulation = currentAiRevisedFullResumeText || currentExtractedResumeText;
+            if (!resumeForSimulation || !jd) { 
                 showAlert('Please analyze a resume and provide a job description first to start simulation.');
                 return;
             }
             showLoading(true);
             socket.emit('start_interview_simulation', {
-                resume_text: currentExtractedResumeText,
+                resume_text: resumeForSimulation,
                 job_description: jd
             });
             interviewPrepModal.classList.add('hidden'); // Close prep modal
@@ -550,8 +600,10 @@
             const question = simulationQuestion.textContent;
             const userAnswerText = userAnswer.value;
             const jd = jobDescription.value;
+            // Use AI-generated text for feedback context if available, otherwise original extracted text
+            const resumeForFeedback = currentAiRevisedFullResumeText || currentExtractedResumeText;
 
-            if (!question || !userAnswerText || !jd || !currentExtractedResumeText) {
+            if (!question || !userAnswerText || !jd || !resumeForFeedback) {
                 showAlert('Please ensure the question, your answer, job description, and resume text are available.');
                 return;
             }
@@ -560,13 +612,15 @@
                 question: question,
                 user_answer: userAnswerText,
                 job_description: jd,
-                resume_text: currentExtractedResumeText
+                resume_text: resumeForFeedback // Use AI-generated text for context
             });
         });
 
         careerRoadmapBtn.addEventListener('click', () => {
             const jd = jobDescription.value;
-            if (!currentExtractedResumeText || !jd) {
+            // Use AI-generated text for roadmap context if available, otherwise original extracted text
+            const resumeForRoadmap = currentAiRevisedFullResumeText || currentExtractedResumeText;
+            if (!resumeForRoadmap || !jd) {
                 showAlert('Please analyze a resume and provide a job description first to generate a career roadmap.');
                 return;
             }
@@ -583,14 +637,16 @@
         generateRoadmapBtn.addEventListener('click', () => {
             const jd = jobDescription.value;
             const desiredRoles = desiredRolesInput.value.split(',').map(role => role.trim()).filter(role => role.length > 0);
+            // Use AI-generated text for roadmap context if available, otherwise original extracted text
+            const resumeForRoadmap = currentAiRevisedFullResumeText || currentExtractedResumeText;
 
-            if (!currentExtractedResumeText || !jd || desiredRoles.length === 0) {
+            if (!resumeForRoadmap || !jd || desiredRoles.length === 0) {
                 showAlert('Please analyze a resume, provide a job description, and enter desired roles.');
                 return;
             }
             showLoading(true);
             socket.emit('request_career_roadmap', {
-                resume_text: currentExtractedResumeText,
+                resume_text: resumeForRoadmap, // Use AI-generated text
                 job_description: jd,
                 desired_roles: desiredRoles
             });
