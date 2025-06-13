@@ -1230,6 +1230,15 @@ def index():
     """Serves the index.html file from the templates folder."""
     return render_template('index.html')
 
+@app.route('/test', methods=['GET'])
+def test_api():
+    dummy_data = {
+        "id": 1,
+        "name": "Dummy Data",
+        "status": "success"
+    }
+    return jsonify(dummy_data)
+
 
 # --- Socket.IO Event Handlers (using Flask-SocketIO decorators) ---
 
