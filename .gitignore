@@ -1,3 +1,7 @@
 __pycache__
 /venv
 Dockerfile.yml
+.htaccess
+/tmp
+*.log
+passanger_wsgi.py
